@@ -1,0 +1,96 @@
+# AI ComicVerse - full stack.
+#
+#   docker compose up --build
+#   open http://localhost:5173
+#
+# Uses Gemini Flash for text and Pollinations for images by default. Put
+# GEMINI_API_KEY in the root .env file (or export it in your shell).
+#
+# The backend image is slim by default; `--profile extras` builds the heavy
+# variant with CLIP, Chroma, OpenCV and Whisper baked in.
+
+name: ai-comicverse
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-comicverse}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-comicverse}
+      POSTGRES_DB: ${POSTGRES_DB:-comicverse}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    ports:
+      - '${POSTGRES_PORT:-5432}:5432'
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-comicverse} -d ${POSTGRES_DB:-comicverse}']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  chroma:
+    image: chromadb/chroma:0.5.23
+    restart: unless-stopped
+    environment:
+      IS_PERSISTENT: 'TRUE'
+      ANONYMIZED_TELEMETRY: 'FALSE'
+    volumes:
+      - chroma-data:/chroma/chroma
+    ports:
+      - '${CHROMA_PORT:-8001}:8000'
+    healthcheck:
+      test: ['CMD-SHELL', 'bash -c ":> /dev/tcp/127.0.0.1/8000" || exit 1']
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      # --- storage / db ---------------------------------------------------
+      STORAGE_DIR: /app/storage
+      USE_SQLITE: 'false'
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-comicverse}:${POSTGRES_PASSWORD:-comicverse}@postgres:5432/${POSTGRES_DB:-comicverse}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: '5432'
+      # --- CORS -----------------------------------------------------------
+      CORS_ORIGINS: http://localhost:5173,http://127.0.0.1:5173,http://localhost:4173
+      # --- providers (override in backend/.env for real models) -----------
+      LLM_PROVIDER: ${LLM_PROVIDER:-gemini}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.5-flash}
+      IMAGE_PROVIDER: ${IMAGE_PROVIDER:-pollinations}
+      STT_PROVIDER: ${STT_PROVIDER:-mock}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      REPLICATE_API_TOKEN: ${REPLICATE_API_TOKEN:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      EMBEDDING_BACKEND: ${EMBEDDING_BACKEND:-auto}
+      VECTOR_STORE: ${VECTOR_STORE:-json}
+      CHROMA_DIR: /app/storage/chroma
+      # --- the container ships psycopg2, so Postgres is the real thing -----
+      DEBUG: 'false'
+    volumes:
+      - ./backend/storage:/app/storage
+      - ./backend/seed:/app/seed:ro
+    ports:
+      - '${BACKEND_PORT:-8000}:8000'
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - '${FRONTEND_PORT:-5173}:80'
+
+volumes:
+  postgres-data:
+  chroma-data:

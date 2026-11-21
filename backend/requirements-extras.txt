@@ -1,0 +1,15 @@
+# Optional extras. Install what you need, e.g.
+#   pip install -r requirements-extras.txt
+# The application detects each of these at runtime and uses it when present.
+
+# --- Real CLIP embeddings for character memory + continuity (pulls torch, ~2GB) ---
+# open-clip-torch==2.29.0
+
+# --- ChromaDB vector store for character memory (~300MB with onnxruntime) ---
+# chromadb==0.5.23
+
+# --- OpenCV: Haar face ROI + HSV histogram in the continuity checker ---
+# opencv-python-headless==4.10.0.84
+
+# --- Local speech-to-text (voice-to-comic) ---
+# faster-whisper==1.1.0

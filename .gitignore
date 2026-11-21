@@ -1,0 +1,28 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.env
+
+# --- Node ---
+node_modules/
+dist/
+.vite/
+
+# --- App runtime state ---
+backend/storage/
+backend/comicverse.db
+backend/*.db-journal
+
+# --- OS / editors ---
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+backend/venv_linux/
+# Backend enviornment secrets
+backend/.env*
+!backened/.env.example

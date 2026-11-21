@@ -1,0 +1,34 @@
+# AI ComicVerse - core backend dependencies.
+#
+# Deliberately excludes torch / chromadb / opencv / faster-whisper so that
+# `pip install -r requirements.txt` succeeds on a bare machine with no GPU.
+# Those live in requirements-extras.txt and are picked up automatically when
+# present (every one of them has a working, tested fallback in-tree).
+
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+pydantic==2.10.4
+pydantic-settings==2.7.0
+python-multipart==0.0.20
+SQLAlchemy==2.0.36
+httpx==0.28.1
+google-genai==1.26.0
+
+# PostgreSQL driver. Small, ships its own libpq, and is what makes the
+# docker-compose Postgres path work. SQLite (the default) does not need it.
+psycopg2-binary==2.9.10
+
+# Orchestration. Any langgraph in 0.2.x-0.6.x works: the graph only uses
+# StateGraph / START / END / add_conditional_edges. If pip cannot resolve this
+# exact pin, use: langgraph>=0.2.60,<0.7
+langgraph==0.2.60
+
+# Image + layout + export
+Pillow==11.1.0
+numpy==2.0.2
+reportlab==4.2.5
+EbookLib==0.18
+
+# Config + live progress
+python-dotenv==1.0.1
+sse-starlette==2.2.1
