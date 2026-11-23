@@ -1,9 +1,8 @@
 """Node 10 - Image Generation.
 
 Renders every panel, or - inside the continuity retry loop - just the panels the
-checker rejected. Each panel is conditioned on the character cards for whoever
-appears in it, which is the whole point of the reference-image approach: 1-2
-images per character, reused across every panel they appear in.
+checker rejected. Character sheets are included in each panel's prompt;
+reference-capable providers additionally receive uploaded reference images.
 
 Retries vary the seed so a re-render is actually different, and re-ask for the
 same prompt.
@@ -51,13 +50,42 @@ def run(state: PipelineState) -> dict[str, Any]:
     panel_dir = settings.project_subdirs(project.project_id)["panels"]
     style_config = state.get("style") or {}
     character_colours = dict(style_config.get("character_colours") or {})
+    character_lookup = {character.name.casefold(): character for character in project.characters}
 
     failures: list[str] = []
     for panel in panels:
         references, colours = panel_reference_paths(panel.characters, project.characters)
         character_colours.update(colours)
+        character_descriptions = {}
+        for name in panel.characters:
+            character = character_lookup.get(name.casefold())
+            if character is None:
+                continue
+            details = [
+                character.appearance,
+                f"outfit: {character.outfit}" if character.outfit else "",
+                (
+                    "distinctive features: " + ", ".join(character.distinguishing_features)
+                    if character.distinguishing_features
+                    else ""
+                ),
+                (
+                    "signature props: " + ", ".join(character.signature_props)
+                    if character.signature_props
+                    else ""
+                ),
+            ]
+            description = "; ".join(detail.strip() for detail in details if detail.strip())
+            if description:
+                character_descriptions[name] = description
 
-        if not references:
+        if not provider.supports_reference_images:
+            emit(
+                f"  {panel.panel_id}: {provider.name} uses character descriptions, "
+                "not uploaded images, for visual consistency",
+                level="warning",
+            )
+        elif not references:
             emit(
                 f"  {panel.panel_id}: no reference image for {', '.join(panel.characters) or 'nobody'} - "
                 f"relying on the prompt alone",
@@ -77,6 +105,7 @@ def run(state: PipelineState) -> dict[str, Any]:
             output_path=str(output_path),
             reference_images=references,
             character_names=panel.characters or ["protagonist"],
+            character_descriptions=character_descriptions,
             character_colors=character_colours,
             action=panel.action,
             emotion=panel.emotion,
@@ -110,12 +139,14 @@ def run(state: PipelineState) -> dict[str, Any]:
         )
 
     if failures:
-        raise RuntimeError(
-            f"{len(failures)} panel(s) could not be rendered: {', '.join(failures)}"
+        emit(
+            f"{len(failures)} panel(s) failed to render; retrying only those panels",
+            level="warning",
+            data={"panels": failures},
         )
 
     return {
         "panels": [p.model_dump(mode="json") for p in project.panels],
-        "regenerate_panel_ids": [],
+        "regenerate_panel_ids": failures,
         **project_update(project),
     }

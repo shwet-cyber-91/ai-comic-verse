@@ -57,6 +57,8 @@ class Settings(BaseSettings):
 
     # --- image generation --------------------------------------------------
     image_provider: str = "pollinations"
+    pollinations_api_key: str = ""
+    pollinations_image_edit_model: str = "openai/gpt-image-1-mini"
     gemini_image_model: str = "gemini-3.1-flash-image"
     replicate_api_token: str = ""
     replicate_model: str = "black-forest-labs/flux-kontext-pro"

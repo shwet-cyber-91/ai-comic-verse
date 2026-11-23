@@ -5,9 +5,9 @@ card" image (the style-filtered reference, or a drawn stand-in when the user
 supplied none), embed it, and store the embedding plus the sheet in the character
 memory (ChromaDB or the JSON store).
 
-That card is what the continuity checker compares panels against, and what the
-image provider conditions on - which is why a 1-2 image reference is enough to
-hold a design steady across a whole comic.
+That card is used by the continuity checker. Text-only image providers receive
+the character sheet as a written design description; providers that support
+reference conditioning can also receive the uploaded images.
 """
 
 from __future__ import annotations
@@ -79,6 +79,19 @@ def _normalise_name(value: str) -> str:
     return " ".join(value.lower().split())
 
 
+def _apply_user_descriptions(
+    drafts: list[dict[str, Any]],
+    user_refs: dict[str, dict[str, Any]],
+) -> None:
+    """Keep the user's explicit character design as the authoritative appearance."""
+    for draft in drafts:
+        description = user_refs.get(_normalise_name(draft.get("name", "")), {}).get(
+            "description", ""
+        )
+        if description and description.strip():
+            draft["appearance"] = description.strip()
+
+
 @pipeline_node("character_memory", "Character Memory")
 def run(state: PipelineState) -> dict[str, Any]:
     request = request_from(state)
@@ -108,6 +121,8 @@ def run(state: PipelineState) -> dict[str, Any]:
                 }
             )
             known.add(_normalise_name(character.name))
+
+    _apply_user_descriptions(drafts, user_refs)
 
     if not drafts:
         drafts = [{"name": "the narrator", "role": "protagonist", "appearance": "", "personality": "", "importance": 3}]
@@ -158,7 +173,7 @@ def run(state: PipelineState) -> dict[str, Any]:
             character_id=character_id,
             name=name,
             role=generated.role or draft.get("role", "supporting"),
-            appearance=generated.appearance,
+            appearance=draft.get("appearance") or generated.appearance,
             outfit=generated.outfit,
             personality=generated.personality,
             distinguishing_features=generated.distinguishing_features,

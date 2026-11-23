@@ -1,8 +1,7 @@
 """Node 8 - Visual Prompt Generation.
 
-The final prompt for each panel. The character's fixed design details are
-restated in every prompt, which is what keeps a reference-conditioned model from
-drifting even when the reference image is the only identity signal.
+The final prompt for each panel. Character sheets are also passed separately to
+the image provider so text-only models retain the fixed design details.
 """
 
 from __future__ import annotations

@@ -17,6 +17,14 @@ with mock/Pillow artwork. Pollinations free-tier image requests are serialized
 with a 45-second per-IP interval; a 402 rate-limit response gets one retry after
 the cooldown. Generating a multi-panel comic can therefore take several minutes.
 
+For Pollinations reference-image editing, set `POLLINATIONS_API_KEY` in
+`backend/.env` and restart the backend. With a key, uploaded character references
+are sent to Pollinations' authenticated image-edit endpoint (default model
+`openai/gpt-image-1-mini`) and the 45-second anonymous free-tier scheduler is not
+used. This endpoint may consume account balance; check Pollinations' current
+pricing before enabling it. Without a key, the app keeps using the anonymous
+text-to-image endpoint, which cannot directly use uploaded references.
+
 ---
 
 ## Provider behavior

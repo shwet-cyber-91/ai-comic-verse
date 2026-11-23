@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 
-import api from '../api.js'
+import api, { assetUrl } from '../api.js'
+import DialogueBubble, { defaultBubblePosition } from '../components/DialogueBubble.jsx'
 import PageView from '../components/PageView.jsx'
 import PanelCard, { SHOT_LABELS } from '../components/PanelCard.jsx'
 import {
@@ -100,6 +101,15 @@ export default function EditorPage() {
       emotion: panel.emotion || 'neutral',
       expression: panel.expression || '',
       characters: (panel.characters || []).join(', '),
+    })
+  }
+
+  function moveBubble(index, x, y) {
+    setDraft((current) => {
+      if (!current) return current
+      const dialogue = [...current.dialogue]
+      dialogue[index] = { ...dialogue[index], position: { x, y } }
+      return { ...current, dialogue }
     })
   }
 
@@ -388,11 +398,28 @@ export default function EditorPage() {
         {selected && draft ? (
           <div className="space-y-5">
             {selected.image_url ? (
-              <img
-                src={selected.image_url}
-                alt={selected.scene_summary}
-                className="w-full rounded-xl border border-white/10"
-              />
+              <div className="relative overflow-hidden rounded-xl border border-white/10">
+                <img
+                  src={assetUrl(selected.image_url)}
+                  alt={selected.scene_summary}
+                  className="block aspect-[4/3] w-full object-cover"
+                  draggable="false"
+                />
+                {draft.dialogue.map((line, index) => {
+                  const position = line.position || defaultBubblePosition(index, draft.dialogue.length)
+                  return (
+                    <DraggableBubble
+                      key={index}
+                      line={line}
+                      position={position}
+                      onMove={(x, y) => moveBubble(index, x, y)}
+                    />
+                  )
+                })}
+                <span className="pointer-events-none absolute bottom-2 left-2 rounded-full bg-ink-950/75 px-2.5 py-1 text-[10px] text-white/80">
+                  Drag bubbles to position
+                </span>
+              </div>
             ) : null}
 
             <div className="flex flex-wrap items-center gap-2 text-xs text-slate-400">
@@ -583,6 +610,72 @@ export default function EditorPage() {
           </div>
         ) : null}
       </Drawer>
+    </div>
+  )
+}
+
+function DraggableBubble({ line, position, onMove }) {
+  const pointerId = useRef(null)
+
+  function handlePointerDown(event) {
+    event.preventDefault()
+    event.stopPropagation()
+    pointerId.current = event.pointerId
+    event.currentTarget.setPointerCapture(event.pointerId)
+    moveBubble(event)
+  }
+
+  function moveBubble(event) {
+    const surface = event.currentTarget.parentElement
+    if (!surface) return
+    const bounds = surface.getBoundingClientRect()
+    const x = Math.min(0.68, Math.max(0.32, (event.clientX - bounds.left) / bounds.width))
+    const y = Math.min(0.88, Math.max(0.12, (event.clientY - bounds.top) / bounds.height))
+    onMove(x, y)
+  }
+
+  function handlePointerMove(event) {
+    if (pointerId.current === event.pointerId) moveBubble(event)
+  }
+
+  function handlePointerUp(event) {
+    if (pointerId.current !== event.pointerId) return
+    pointerId.current = null
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId)
+    }
+  }
+
+  function handleKeyDown(event) {
+    const increments = {
+      ArrowLeft: [-0.02, 0],
+      ArrowRight: [0.02, 0],
+      ArrowUp: [0, -0.02],
+      ArrowDown: [0, 0.02],
+    }
+    const increment = increments[event.key]
+    if (!increment) return
+    event.preventDefault()
+    onMove(
+      Math.min(0.68, Math.max(0.32, position.x + increment[0])),
+      Math.min(0.88, Math.max(0.12, position.y + increment[1])),
+    )
+  }
+
+  return (
+    <div
+      className="absolute z-10 max-w-[72%] -translate-x-1/2 -translate-y-1/2 cursor-grab touch-none active:cursor-grabbing"
+      style={{ left: `${position.x * 100}%`, top: `${position.y * 100}%` }}
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerUp}
+      onPointerCancel={handlePointerUp}
+      onKeyDown={handleKeyDown}
+      role="button"
+      tabIndex={0}
+      aria-label={`Move ${line.speaker || 'dialogue'} bubble`}
+    >
+      <DialogueBubble line={line} compact />
     </div>
   )
 }

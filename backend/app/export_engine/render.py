@@ -86,30 +86,32 @@ def _draw_panel_bubbles(
         )
         cursor += box_h + 8
 
-    # dialogue: alternate sides so two speakers read as a conversation
+    # Dialogue defaults to a staggered layout; saved positions override it.
     slot_h = max(66, int(h * 0.28))
-    drawn = 0
-    for line in panel.dialogue[:3]:
-        if cursor + slot_h > y + h - inset:
-            break
+    for index, line in enumerate(panel.dialogue[:3]):
         bubble_w = min(int(w * 0.62), 340)
-        on_left = drawn % 2 == 0 and len(panel.dialogue) > 1
-        if len(panel.dialogue) == 1:
-            on_left = True
-        bx = x + inset if on_left else x + w - inset - bubble_w
+        default_x = 0.5 if len(panel.dialogue) == 1 else (0.32 if index % 2 == 0 else 0.68)
+        default_y = min(0.20 + (index // 2) * 0.24, 0.80)
+        position = line.position
+        center_x = position.x if position else default_x
+        center_y = position.y if position else default_y
+        center_x = min(max(center_x, bubble_w / (2 * w)), 1 - bubble_w / (2 * w))
+        center_y = min(max(center_y, slot_h / (2 * h)), 1 - slot_h / (2 * h))
+        bx = x + int(center_x * w - bubble_w / 2)
+        by = y + int(center_y * h - slot_h / 2)
+        on_left = center_x < 0.5
         text = f"{line.speaker}: {line.text}" if line.speaker and line.speaker != "Narrator" else line.text
         draw_bubble(
             canvas,
             text,
-            (bx, cursor, bx + bubble_w, cursor + slot_h),
+            (bx, by, bx + bubble_w, by + slot_h),
             kind=line.kind if line.kind in ("speech", "thought", "shout", "whisper") else "speech",
             bubble_style=preset.bubble_style,
             font_family=preset.font_family,
             accent=accent,
             tail="bottom-left" if on_left else "bottom-right",
+            center_y=y + int(center_y * h),
         )
-        cursor += slot_h + 6
-        drawn += 1
 
     if panel.sfx:
         sfx_w = int(w * 0.5)

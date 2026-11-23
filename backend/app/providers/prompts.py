@@ -20,12 +20,31 @@ BASE_SYSTEM = (
     "copyrighted characters, brands or real public figures."
 )
 
+LANGUAGE_NAMES = {
+    "en": "English",
+    "hi": "Hindi",
+    "bn": "Bengali",
+    "ta": "Tamil",
+    "te": "Telugu",
+    "mr": "Marathi",
+    "gu": "Gujarati",
+    "kn": "Kannada",
+    "ml": "Malayalam",
+    "pa": "Punjabi",
+    "ur": "Urdu",
+}
+
 TASK_INSTRUCTIONS: dict[str, str] = {
     "story_understanding": (
         "Analyse the story. Identify genre, tone, setting, time period, themes, a "
         "one-sentence logline, and every recurring character with a role and a short "
         "appearance note. Decide how many distinct scenes the story needs "
-        "(scene_count, 1-8). narrative_arc is an ordered list of 3-5 short beats."
+        "(scene_count, 1-8). Also choose recommended_panel_count (2-24) based on "
+        "the story's actual plot beats and complexity: use enough panels to show "
+        "important actions and turning points without padding the story. If "
+        "auto_panel_count is true, treat panel_count as a placeholder and make "
+        "this recommendation the panel count for the comic. "
+        "narrative_arc is an ordered list of 3-5 short beats."
     ),
     "character_sheet": (
         "Produce a production character sheet for each character: physical "
@@ -84,6 +103,13 @@ TASK_INSTRUCTIONS: dict[str, str] = {
 def build_prompt(task: str, payload: dict[str, Any], schema: Type[BaseModel]) -> tuple[str, str]:
     """Return (system, user) for a task, with the schema spelled out."""
     instruction = TASK_INSTRUCTIONS.get(task, f"Complete the '{task}' task.")
+    language_code = str(payload.get("language") or "en")
+    language_name = LANGUAGE_NAMES.get(language_code, language_code)
+    if task in {"story_understanding", "dialogue_generation"}:
+        instruction = (
+            f"{instruction} Write all human-readable output for this task in "
+            f"{language_name} (language code: {language_code})."
+        )
     schema_json = json.dumps(schema.model_json_schema(), indent=2)
     system = f"{BASE_SYSTEM}\n\nTASK: {instruction}"
 

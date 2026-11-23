@@ -406,6 +406,8 @@ class MockLLM(BaseLLM):
         logline = clean_clause(sentences[0]) if sentences else title
         scene_count = max(2, min(len(sentences) // 2 or 2, 6))
         scene_count = max(2, min(scene_count, max(2, panel_count // 2)))
+        story_words = len(story.split())
+        recommended_panel_count = max(2, min(24, max(len(sentences), (story_words + 34) // 35)))
 
         themes = [w for w in content_words(story)][:5]
         themes = list(dict.fromkeys(themes)) or ["memory", "choice"]
@@ -420,6 +422,7 @@ class MockLLM(BaseLLM):
             "themes": themes[:4],
             "characters": characters,
             "scene_count": scene_count,
+            "recommended_panel_count": recommended_panel_count,
             "narrative_arc": [
                 f"Setup: {clean_clause(sentences[0]) if sentences else 'we meet the cast'}",
                 f"Complication: {clean_clause(sentences[len(sentences) // 2]) if sentences else 'something goes wrong'}",

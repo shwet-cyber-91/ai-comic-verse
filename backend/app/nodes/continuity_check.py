@@ -88,6 +88,12 @@ def run(state: PipelineState) -> dict[str, Any]:
             level="warning",
             data={"panels": failing},
         )
+        missing_images = [panel.panel_id for panel in project.panels if not panel.image_path]
+        if missing_images:
+            raise RuntimeError(
+                f"{len(missing_images)} panel(s) still have no image after "
+                f"{checker.max_retries} retries: {', '.join(missing_images)}"
+            )
     else:
         emit(f"All panels passed continuity (mean {mean_score:.3f}, worst {min_score:.3f})")
 

@@ -5,17 +5,17 @@ export default {
     extend: {
       colors: {
         ink: {
-          950: '#0b0b10',
-          900: '#12121a',
-          850: '#181822',
-          800: '#1e1e2a',
-          700: '#2b2b3a',
-          600: '#3d3d50',
+          950: '#080a12',
+          900: '#10131f',
+          850: '#171b2b',
+          800: '#20253a',
+          700: '#30364f',
+          600: '#454b67',
         },
         accent: {
-          DEFAULT: '#f2b23e',
-          soft: '#ffd479',
-          deep: '#c8871d',
+          DEFAULT: '#8b7cf6',
+          soft: '#b6adff',
+          deep: '#6857db',
         },
         panel: '#f6f3ec',
       },

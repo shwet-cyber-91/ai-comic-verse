@@ -25,6 +25,7 @@ def run(state: PipelineState) -> dict[str, Any]:
         "story_text": request.story_text,
         "title": request.title,
         "panel_count": request.panel_count,
+        "auto_panel_count": request.auto_panel_count,
         "language": request.language,
         "user_characters": [
             {"name": c.name, "description": c.description} for c in request.characters
@@ -35,7 +36,12 @@ def run(state: PipelineState) -> dict[str, Any]:
     # the user's title always wins over the model's suggestion
     if request.title and request.title != "Untitled Comic":
         analysis.title = request.title
+    if request.auto_panel_count:
+        request.panel_count = analysis.recommended_panel_count
+        request.auto_panel_count = False
+        emit(f"Story-based panel count selected: {request.panel_count}")
     analysis.scene_count = max(1, min(analysis.scene_count, max(1, request.panel_count)))
+    project.panel_count = request.panel_count
     project.title = analysis.title
     project.story_analysis = analysis
 
@@ -53,6 +59,7 @@ def run(state: PipelineState) -> dict[str, Any]:
         emit("Cast: " + ", ".join(f"{c.name} ({c.role})" for c in analysis.characters))
 
     return {
+        "request": request.model_dump(mode="json"),
         "story_analysis": analysis.model_dump(mode="json"),
         **project_update(project),
     }

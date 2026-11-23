@@ -7,6 +7,7 @@ against the requested panel count before it is trusted.
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from ..providers.registry import get_llm
@@ -38,6 +39,16 @@ def reconcile_beats(scenes: list[Any], panel_count: int) -> list[str]:
             f"closing beat: {target.action[:110] or target.summary}" if target.action else "closing beat"
         )
     return warnings
+
+
+def _characters_for_beat(beat: str, scene_characters: list[str]) -> list[str]:
+    """Prefer characters named in the beat; otherwise keep the scene cast stable."""
+    mentioned = [
+        name
+        for name in scene_characters
+        if re.search(rf"(?<!\w){re.escape(name)}(?!\w)", beat, flags=re.IGNORECASE)
+    ]
+    return mentioned or list(scene_characters)
 
 
 @pipeline_node("scene_planning", "Scene Planning")
@@ -75,9 +86,7 @@ def run(state: PipelineState) -> dict[str, Any]:
         scene_cast = scene.characters or cast
         for beat_index, beat in enumerate(scene.beats):
             index += 1
-            # rotate the on-panel cast so panels vary, and keep groups small enough to draw
-            present = [scene_cast[(beat_index + offset) % len(scene_cast)] for offset in range(min(2, len(scene_cast)))]
-            present = list(dict.fromkeys(present))
+            present = _characters_for_beat(beat, scene_cast)
             panels.append(
                 Panel(
                     panel_id=f"p{index:03d}",

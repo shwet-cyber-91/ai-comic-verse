@@ -114,6 +114,7 @@ class StoryRequest(_Base):
     style: StyleName = "manga"
     characters: list[CharacterRef] = Field(default_factory=list)
     panel_count: int = Field(default=8, ge=2, le=40)
+    auto_panel_count: bool = False
     panels_per_page: int = Field(default=4, ge=1, le=9)
     language: str = "en"
     export_formats: list[ExportFormat] = Field(
@@ -187,6 +188,7 @@ class StoryAnalysis(_Base):
     themes: list[str] = Field(default_factory=list)
     characters: list[CharacterDraft] = Field(default_factory=list)
     scene_count: int = Field(default=3, ge=1, le=8)
+    recommended_panel_count: int = Field(ge=2, le=24)
     narrative_arc: list[str] = Field(default_factory=list)
 
 
@@ -240,11 +242,19 @@ class EmotionPlan(_Base):
     beats: list[BeatEmotion] = Field(default_factory=list)
 
 
+class BubblePosition(_Base):
+    """Bubble center as normalized coordinates within its panel."""
+
+    x: float = Field(ge=0.0, le=1.0)
+    y: float = Field(ge=0.0, le=1.0)
+
+
 class DialogueLine(_Base):
     speaker: str = "Narrator"
     text: str = ""
     kind: BubbleKind = "speech"
     emotion: Emotion = "neutral"
+    position: Optional[BubblePosition] = None
 
 
 class PanelDialogue(_Base):

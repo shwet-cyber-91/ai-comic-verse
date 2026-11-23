@@ -7,22 +7,22 @@
 
 const STYLES = {
   speech: {
-    bubble: 'rounded-[18px] bg-white text-ink-950 border border-black/15',
+    bubble: 'rounded-[46%] bg-white text-ink-950 border-2 border-ink-950 shadow-[0_3px_0_rgba(16,19,31,.18)]',
     tail: true,
     transform: '',
   },
   thought: {
-    bubble: 'rounded-[24px] border-2 border-dashed border-white/70 bg-white/95 text-ink-950',
+    bubble: 'rounded-[46%] border-2 border-dashed border-ink-950/75 bg-white/95 text-ink-950',
     tail: false,
     transform: 'italic',
   },
   shout: {
-    bubble: 'bg-accent text-ink-950 border-2 border-ink-950',
+    bubble: 'rounded-[28%] bg-accent text-white border-2 border-ink-950',
     tail: true,
     transform: 'uppercase tracking-tight font-extrabold',
   },
   whisper: {
-    bubble: 'rounded-[18px] border border-dashed border-white/60 bg-white/80 text-ink-900',
+    bubble: 'rounded-[46%] border-2 border-dashed border-ink-950/70 bg-white/90 text-ink-900',
     tail: true,
     transform: 'italic text-[0.95em]',
   },
@@ -51,7 +51,7 @@ export default function DialogueBubble({ line, compact = false }) {
     <div className={compact ? 'max-w-full' : 'max-w-[min(90%,22rem)]'}>
       <div
         className={[
-          'relative px-3 py-2 text-[13px] leading-snug shadow-md',
+          'relative px-4 py-2.5 text-center text-[13px] leading-snug shadow-md',
           style.bubble,
           style.transform,
           compact ? 'text-[11px]' : '',
@@ -77,4 +77,11 @@ export default function DialogueBubble({ line, compact = false }) {
       </div>
     </div>
   )
+}
+
+export function defaultBubblePosition(index, total) {
+  return {
+    x: total === 1 ? 0.5 : index % 2 === 0 ? 0.32 : 0.68,
+    y: Math.min(0.2 + Math.floor(index / 2) * 0.24, 0.8),
+  }
 }

@@ -294,6 +294,7 @@ def draw_bubble(
     accent: tuple[int, int, int] = (20, 20, 20),
     tail: str = "bottom-left",
     start_size: int = 26,
+    center_y: int | None = None,
 ) -> None:
     """Draw a speech / thought / caption / sfx bubble directly onto ``image``."""
     if not text or not text.strip():
@@ -339,6 +340,8 @@ def draw_bubble(
     )
     text_h = line_h * len(lines)
     height = text_h + 2 * pad
+    if center_y is not None:
+        y1 = center_y - height // 2
     bubble = (x1, y1, x2, y1 + height)
 
     if kind == "shout":

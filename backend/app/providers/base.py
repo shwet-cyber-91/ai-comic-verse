@@ -114,6 +114,7 @@ class ImageRequest:
     output_path: str = ""
     reference_images: list[str] = field(default_factory=list)  # absolute paths
     character_names: list[str] = field(default_factory=list)
+    character_descriptions: dict[str, str] = field(default_factory=dict)
     character_colors: dict[str, str] = field(default_factory=dict)
     action: str = ""
     emotion: str = "neutral"

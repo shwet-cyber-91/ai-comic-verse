@@ -17,7 +17,7 @@ from app.config import get_settings
 from app.export_engine import ALL_FORMATS, export_project
 from app.layout_templates import TEMPLATES, choose_template
 from app.nodes.layout_generator import paginate
-from app.schemas import CameraSpec, ComicProject, DialogueLine, Panel
+from app.schemas import BubblePosition, CameraSpec, ComicProject, DialogueLine, Panel
 from app.storage import abs_path, rel_path
 
 
@@ -97,6 +97,31 @@ def test_every_panel_count_gets_a_usable_template():
         assert name in TEMPLATES or name == "auto_grid"
         assert len(cells) == count, f"{count} panels produced {len(cells)} cells"
         assert rows >= 1
+
+
+def test_dialogue_bubble_position_is_normalized_and_used_in_page_render(monkeypatch):
+    import app.export_engine.render as renderer
+
+    calls = []
+    monkeypatch.setattr(renderer, "draw_bubble", lambda *args, **kwargs: calls.append((args, kwargs)))
+    panel = Panel(
+        panel_id="p001",
+        index=1,
+        dialogue=[
+            DialogueLine(
+                speaker="Mira",
+                text="Over here!",
+                position=BubblePosition(x=0.6, y=0.4),
+            )
+        ],
+    )
+    canvas = Image.new("RGB", (600, 500))
+
+    renderer._draw_panel_bubbles(canvas, (10, 20, 500, 400), panel, "manga", ["#141418"])
+
+    (args, kwargs), = calls
+    assert args[2] == (155, 124, 465, 236)
+    assert kwargs["center_y"] == 180
 
 
 def test_export_writes_all_four_formats(project):

@@ -157,6 +157,66 @@ def test_demo_story_tracks_only_human_characters_and_location():
     assert "Shonar Bagan" in analysis.setting
 
 
+def test_scene_planning_keeps_cast_stable_unless_beat_names_a_character():
+    from app.nodes.scene_planning import _characters_for_beat
+
+    cast = ["Mira", "Kestrel", "Ishaan"]
+
+    assert _characters_for_beat("The room grows quiet.", cast) == cast
+    assert _characters_for_beat("Mira opens the observatory door.", cast) == ["Mira"]
+    assert _characters_for_beat("Mira and Kestrel look at the map.", cast) == [
+        "Mira",
+        "Kestrel",
+    ]
+
+
+def test_user_character_description_is_preserved_in_character_sheet_draft():
+    from app.nodes.character_memory import _apply_user_descriptions
+
+    drafts = [{"name": "Mira", "appearance": "brown hair"}]
+    user_refs = {"mira": {"description": "short silver hair, red flight jacket"}}
+
+    _apply_user_descriptions(drafts, user_refs)
+
+    assert drafts[0]["appearance"] == "short silver hair, red flight jacket"
+
+
+def test_panel_references_prioritize_each_visible_character(monkeypatch, tmp_path):
+    from app.nodes import refs
+    from app.schemas import CharacterSheet
+
+    reference_paths = {}
+    sheets = []
+    for name in ("Mira", "Kestrel"):
+        paths = []
+        for suffix in ("reference", "second"):
+            path = tmp_path / f"{name}_{suffix}.png"
+            path.write_bytes(b"image")
+            paths.append(path)
+        reference_paths[f"{name}_reference"] = paths[0]
+        reference_paths[f"{name}_second"] = paths[1]
+        sheets.append(
+            CharacterSheet(
+                character_id=f"c_{name.lower()}",
+                name=name,
+                reference_images=[f"{name}_reference", f"{name}_second"],
+            )
+        )
+
+    monkeypatch.setattr(
+        refs,
+        "abs_path",
+        lambda value: reference_paths.get(value, tmp_path / "missing"),
+    )
+
+    selected, _ = refs.panel_reference_paths(["Mira", "Kestrel"], sheets)
+
+    assert selected == [
+        str(reference_paths["Mira_reference"]),
+        str(reference_paths["Kestrel_reference"]),
+    ]
+
+
 def test_demo_story_dialogue_has_no_repeated_lines_or_duplicate_narration():
     demo_path = Path(__file__).resolve().parents[1] / "seed" / "demo_story.json"
     story = json.loads(demo_path.read_text(encoding="utf-8"))
@@ -318,6 +378,102 @@ def test_emotion_and_dialogue_nodes_cover_every_panel(story_request, fresh_app_s
         assert panel["camera"]["shot"]
         assert panel["visual_prompt"]
         assert panel["dialogue"] or panel["narration"], "every panel needs words or a caption"
+
+
+def test_auto_panel_count_uses_story_recommendation_for_scene_planning(story_request, fresh_app_state):
+    from app.nodes import scene_planning, story_input, story_understanding
+
+    story_request["auto_panel_count"] = True
+    state = initial_state("auto0001", story_request)
+    for node in (story_input, story_understanding, scene_planning):
+        state = {**state, **node.run(state)}
+
+    recommended = state["story_analysis"]["recommended_panel_count"]
+    assert state["request"]["panel_count"] == recommended
+    assert state["request"]["auto_panel_count"] is False
+    assert state["project"]["panel_count"] == recommended
+    assert len(state["panels"]) == recommended
+
+
+def test_image_generation_preserves_successes_and_retries_only_failed_panels(
+    fresh_app_state, monkeypatch
+):
+    from PIL import Image
+
+    from app.nodes import image_generation
+    from app.providers.base import ImageResult
+    from app.schemas import ComicProject, Panel, StoryRequest
+
+    class FailOnceProvider:
+        name = "test"
+        supports_reference_images = False
+
+        def __init__(self):
+            self.failed = False
+
+        def generate(self, request):
+            if request.panel_id == "p002" and not self.failed:
+                self.failed = True
+                raise RuntimeError("temporary provider error")
+            output = Path(request.output_path)
+            output.parent.mkdir(parents=True, exist_ok=True)
+            Image.new("RGB", (16, 16), "white").save(output)
+            return ImageResult(str(output), self.name, request.seed)
+
+    provider = FailOnceProvider()
+    monkeypatch.setattr(image_generation, "get_image_provider", lambda: provider)
+    request = StoryRequest(
+        title="Retry test",
+        story_text="Mira finds a map. She follows it.",
+        panel_count=2,
+    ).model_dump(mode="json")
+    state = initial_state("retry-panels", request)
+    project = ComicProject(
+        project_id="retry-panels",
+        title="Retry test",
+        story_text=request["story_text"],
+        panel_count=2,
+        panels=[
+            Panel(panel_id=f"p{index:03d}", index=index, visual_prompt="test prompt")
+            for index in (1, 2)
+        ],
+    )
+    state["project"] = project.model_dump(mode="json")
+
+    first = image_generation.run(state)
+    assert first["regenerate_panel_ids"] == ["p002"]
+    assert first["project"]["panels"][0]["image_path"]
+    assert not first["project"]["panels"][1]["image_path"]
+
+    retried = image_generation.run({**state, **first})
+    assert retried["regenerate_panel_ids"] == []
+    assert all(panel["image_path"] for panel in retried["project"]["panels"])
+
+
+def test_pipeline_fails_clearly_if_images_are_still_missing_after_retries(
+    fresh_app_state, monkeypatch
+):
+    from app.nodes import continuity_check
+    from app.nodes.base import NodeError
+    from app.schemas import ComicProject, Panel, StoryRequest
+
+    class NoRetriesChecker:
+        threshold = 0.62
+        max_retries = 0
+        embedder = type("Embedder", (), {"name": "test"})()
+
+    monkeypatch.setattr(continuity_check, "get_checker", lambda: NoRetriesChecker())
+    request = StoryRequest(title="Missing image", story_text="A story.").model_dump(mode="json")
+    state = initial_state("missing-image", request)
+    project = ComicProject(
+        project_id="missing-image",
+        title="Missing image",
+        panels=[Panel(panel_id="p001", index=1)],
+    )
+    state["project"] = project.model_dump(mode="json")
+
+    with pytest.raises(NodeError, match="still have no image"):
+        continuity_check.run(state)
 
 
 def test_editor_applies_only_the_fields_it_is_given(story_request, fresh_app_state):

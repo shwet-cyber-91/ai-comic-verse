@@ -1,5 +1,5 @@
 import { assetUrl } from '../api.js'
-import DialogueBubble from './DialogueBubble.jsx'
+import DialogueBubble, { defaultBubblePosition } from './DialogueBubble.jsx'
 import { EmotionChip, scoreTone } from './ui.jsx'
 
 const SHOT_LABELS = {
@@ -68,14 +68,21 @@ export default function PanelCard({ panel, selected = false, onSelect, showMeta 
                 <DialogueBubble key={`narration-${index}`} line={line} compact />
               ))}
           </div>
-          <div className="flex flex-col items-end gap-1.5 self-end">
-            {lines
-              .filter((line) => line.kind !== 'narration' && line.kind !== 'caption')
-              .slice(0, 3)
-              .map((line, index) => (
-                <DialogueBubble key={`line-${index}`} line={line} compact />
-              ))}
-          </div>
+          {lines
+            .filter((line) => line.kind !== 'narration' && line.kind !== 'caption')
+            .slice(0, 3)
+            .map((line, index, visible) => {
+              const position = line.position || defaultBubblePosition(index, visible.length)
+              return (
+                <div
+                  key={`line-${index}`}
+                  className="absolute max-w-[62%] -translate-x-1/2 -translate-y-1/2"
+                  style={{ left: `${position.x * 100}%`, top: `${position.y * 100}%` }}
+                >
+                  <DialogueBubble line={line} compact />
+                </div>
+              )
+            })}
         </div>
       ) : null}
 

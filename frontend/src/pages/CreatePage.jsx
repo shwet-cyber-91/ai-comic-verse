@@ -13,14 +13,30 @@ const STEPS = [
   'Generate',
 ]
 
+const LANGUAGES = [
+  { code: 'en', locale: 'en-US', label: 'English' },
+  { code: 'hi', locale: 'hi-IN', label: 'Hindi' },
+  { code: 'bn', locale: 'bn-IN', label: 'Bengali' },
+  { code: 'ta', locale: 'ta-IN', label: 'Tamil' },
+  { code: 'te', locale: 'te-IN', label: 'Telugu' },
+  { code: 'mr', locale: 'mr-IN', label: 'Marathi' },
+  { code: 'gu', locale: 'gu-IN', label: 'Gujarati' },
+  { code: 'kn', locale: 'kn-IN', label: 'Kannada' },
+  { code: 'ml', locale: 'ml-IN', label: 'Malayalam' },
+  { code: 'pa', locale: 'pa-IN', label: 'Punjabi' },
+  { code: 'ur', locale: 'ur-PK', label: 'Urdu' },
+]
+
 export default function CreatePage() {
   const navigate = useNavigate()
 
   const [step, setStep] = useState(0)
   const [title, setTitle] = useState('The Last Star Chart')
   const [storyText, setStoryText] = useState('')
+  const [language, setLanguage] = useState('en')
   const [style, setStyle] = useState('manga')
   const [characters, setCharacters] = useState([])
+  const [autoPanelCount, setAutoPanelCount] = useState(true)
   const [panelCount, setPanelCount] = useState(8)
   const [panelsPerPage, setPanelsPerPage] = useState(4)
   const [formats, setFormats] = useState(EXPORT_FORMATS.map((format) => format.id))
@@ -35,6 +51,10 @@ export default function CreatePage() {
   const [recording, setRecording] = useState(false)
   const recorderRef = useRef(null)
   const chunksRef = useRef([])
+  const recognitionRef = useRef(null)
+  const voiceBaseTextRef = useRef('')
+  const voiceFinalTextRef = useRef('')
+  const voiceInterimTextRef = useRef('')
 
   useEffect(() => {
     let cancelled = false
@@ -44,6 +64,8 @@ export default function CreatePage() {
       .catch(() => undefined)
     return () => {
       cancelled = true
+      recognitionRef.current?.stop()
+      if (recorderRef.current?.state === 'recording') recorderRef.current.stop()
     }
   }, [])
 
@@ -78,9 +100,60 @@ export default function CreatePage() {
 
   async function toggleRecording() {
     if (recording) {
-      recorderRef.current?.stop()
+      recognitionRef.current?.stop()
+      if (recorderRef.current?.state === 'recording') recorderRef.current.stop()
       return
     }
+
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
+    if (SpeechRecognition) {
+      try {
+        const recognition = new SpeechRecognition()
+        voiceBaseTextRef.current = storyText
+        voiceFinalTextRef.current = ''
+        voiceInterimTextRef.current = ''
+
+        recognition.continuous = true
+        recognition.interimResults = true
+        recognition.lang =
+          LANGUAGES.find((item) => item.code === language)?.locale || navigator.language || 'en-US'
+        recognition.onresult = (event) => {
+          let finalText = ''
+          let interimText = ''
+          for (let index = 0; index < event.results.length; index += 1) {
+            const transcript = event.results[index][0].transcript.trim()
+            if (event.results[index].isFinal) finalText += `${transcript} `
+            else interimText += `${transcript} `
+          }
+          voiceFinalTextRef.current = finalText.trim()
+          voiceInterimTextRef.current = interimText.trim()
+
+          const dictated = [voiceFinalTextRef.current, voiceInterimTextRef.current].filter(Boolean).join(' ')
+          setStoryText(voiceBaseTextRef.current ? `${voiceBaseTextRef.current}\n\n${dictated}` : dictated)
+        }
+        recognition.onerror = (event) => {
+          if (event.error !== 'aborted') setError(`Voice input failed: ${event.error}`)
+        }
+        recognition.onend = () => {
+          setRecording(false)
+          recognitionRef.current = null
+          if (voiceFinalTextRef.current || voiceInterimTextRef.current) {
+            setNotice('Voice transcription added to the story.')
+          }
+        }
+
+        recognition.start()
+        recognitionRef.current = recognition
+        setRecording(true)
+        setError(null)
+        setNotice(null)
+        return
+      } catch (err) {
+        setError(`Could not start voice input: ${err.message}`)
+        return
+      }
+    }
+
     if (!navigator.mediaDevices?.getUserMedia) {
       setError('This browser has no microphone API. Use the audio file upload instead.')
       return
@@ -114,17 +187,20 @@ export default function CreatePage() {
     setBusy(true)
     setError(null)
     try {
-      const project = await api.createProject({
+      const request = {
         title: title.trim() || 'Untitled Comic',
         story_text: storyText,
+        language,
         style,
         characters,
+        auto_panel_count: autoPanelCount,
         panel_count: Number(panelCount),
         panels_per_page: Number(panelsPerPage),
         export_formats: formats,
         continuity_threshold: Number(threshold),
-      })
-      const job = await api.generate(project.project_id)
+      }
+      const project = await api.createProject(request)
+      const job = await api.generate(project.project_id, request)
       navigate(`/progress/${job.job_id}?project=${project.project_id}`)
     } catch (err) {
       setError(err.message)
@@ -181,6 +257,20 @@ export default function CreatePage() {
             <div className="space-y-4">
               <Field label="Title">
                 <input className="input" value={title} onChange={(event) => setTitle(event.target.value)} maxLength={120} />
+              </Field>
+
+              <Field label="Comic language" hint="Dialogue, captions and narration will use this language.">
+                <select
+                  className="input"
+                  value={language}
+                  onChange={(event) => setLanguage(event.target.value)}
+                >
+                  {LANGUAGES.map((item) => (
+                    <option key={item.code} value={item.code}>
+                      {item.label}
+                    </option>
+                  ))}
+                </select>
               </Field>
 
               <Field
@@ -270,15 +360,49 @@ export default function CreatePage() {
             }
           >
             <div className="grid gap-5 sm:grid-cols-2">
-              <Field label={`Panels: ${panelCount}`} hint="Each panel is one rendered image.">
-                <input
-                  type="range"
-                  min={2}
-                  max={24}
-                  value={panelCount}
-                  onChange={(event) => setPanelCount(event.target.value)}
-                  className="w-full accent-accent"
-                />
+              <Field
+                label="Number of panels"
+                hint={
+                  autoPanelCount
+                    ? 'Recommended: AI will choose 2–24 panels from your story’s plot and key events.'
+                    : 'Each panel is one rendered image.'
+                }
+              >
+                <div className="mb-3 flex gap-2">
+                  <button
+                    type="button"
+                    className={autoPanelCount ? 'btn-primary' : 'btn-ghost'}
+                    onClick={() => setAutoPanelCount(true)}
+                    aria-pressed={autoPanelCount}
+                  >
+                    Auto (recommended)
+                  </button>
+                  <button
+                    type="button"
+                    className={!autoPanelCount ? 'btn-primary' : 'btn-ghost'}
+                    onClick={() => setAutoPanelCount(false)}
+                    aria-pressed={!autoPanelCount}
+                  >
+                    Choose manually
+                  </button>
+                </div>
+                {autoPanelCount ? (
+                  <p className="text-sm text-slate-400">
+                    The story analysis will set the panel count before scene planning.
+                  </p>
+                ) : (
+                  <>
+                    <span className="mb-1 block text-sm text-slate-300">{panelCount} panels</span>
+                    <input
+                      type="range"
+                      min={2}
+                      max={24}
+                      value={panelCount}
+                      onChange={(event) => setPanelCount(event.target.value)}
+                      className="w-full accent-accent"
+                    />
+                  </>
+                )}
               </Field>
 
               <Field label={`Panels per page: ${panelsPerPage}`} hint="The layout generator fits the grid to this count.">
@@ -356,9 +480,17 @@ export default function CreatePage() {
               <dd className="text-slate-100">{style.replace('_', ' ')}</dd>
             </div>
             <div className="flex justify-between gap-3">
+              <dt className="text-slate-400">Language</dt>
+              <dd className="text-slate-100">
+                {LANGUAGES.find((item) => item.code === language)?.label || language}
+              </dd>
+            </div>
+            <div className="flex justify-between gap-3">
               <dt className="text-slate-400">Panels</dt>
               <dd className="text-slate-100">
-                {panelCount} · {Math.ceil(panelCount / panelsPerPage)} page(s)
+                {autoPanelCount
+                  ? 'AI chooses from story'
+                  : `${panelCount} · ${Math.ceil(panelCount / panelsPerPage)} page(s)`}
               </dd>
             </div>
             <div className="flex justify-between gap-3">

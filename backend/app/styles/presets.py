@@ -63,9 +63,10 @@ STYLE_PRESETS: dict[str, StylePreset] = {
         name="Bengali Comic",
         description="Bold flat colour, strong outlines, hand-lettered feel, folk-motif detail.",
         prompt_fragment=(
-            "bengali comic book illustration, bold flat colour blocks, strong confident outlines, "
-            "hand-printed texture, limited warm palette with indigo accents, folk-motif background "
-            "details, expressive simple facial features, vintage print grain"
+            "Bengali-language South Asian comic illustration, hand-inked bold confident outlines, "
+            "flat warm terracotta and ochre colour blocks with indigo accents, hand-printed paper "
+            "texture, Bengali folk-art inspired motifs in the environment, expressive natural faces, "
+            "vintage Bengali comic-book print grain, readable uncluttered composition"
         ),
         negative_fragment="anime moe, glossy 3d, photorealistic, neon cyberpunk",
         palette=["#7a2f1f", "#c9642c", "#e0a83e", "#2b4a6f", "#f6ecd8"],

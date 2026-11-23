@@ -9,7 +9,10 @@ Returns a PNG/JPEG directly — no polling, no auth.
 
 from __future__ import annotations
 
+import base64
+import binascii
 import io
+import math
 import random
 import threading
 import time
@@ -22,11 +25,14 @@ from PIL import Image
 from ..config import get_settings
 from ..logging_config import get_logger
 from .base import ImageProvider, ImageRequest, ImageResult, ProviderError
+from ..styles.presets import get_style_preset
 
 log = get_logger("providers.image.pollinations")
 
 POLLINATIONS_BASE = "https://image.pollinations.ai/prompt"
-REQUEST_INTERVAL_SECONDS = 45.0
+POLLINATIONS_EDIT_URL = "https://gen.pollinations.ai/v1/images/edits"
+REQUEST_INTERVAL_SECONDS = 60.0
+REFERENCE_MAX_SIZE = 1024
 _rate_limit_lock = threading.Lock()
 _next_request_at = 0.0
 _rate_limit_until = 0.0
@@ -49,12 +55,16 @@ def _wait_for_request_slot() -> None:
         time.sleep(wait)
 
 
-def _defer_after_rate_limit() -> None:
+def _defer_after_rate_limit(retry_after: float | None = None) -> None:
     global _next_request_at, _rate_limit_until
+    if retry_after is None or not math.isfinite(retry_after) or retry_after <= 0:
+        cooldown = REQUEST_INTERVAL_SECONDS
+    else:
+        cooldown = min(retry_after, 900.0)
     with _rate_limit_lock:
         _rate_limit_until = max(
             _rate_limit_until,
-            time.monotonic() + REQUEST_INTERVAL_SECONDS,
+            time.monotonic() + cooldown,
         )
         _next_request_at = max(_next_request_at, _rate_limit_until)
 
@@ -75,32 +85,28 @@ EMOTION_FACES = {
     "neutral": "natural thoughtful expression, soft attentive eyes",
 }
 
-# Style → art style keywords for the model
-STYLE_KEYWORDS = {
-    "manga": "manga style, anime art, clean linework, screentone shading, expressive eyes",
-    "comic": "western comic book style, bold ink lines, cel shading, dynamic",
-    "noir": "film noir comic, high contrast black and white, dramatic shadows",
-    "watercolor": "watercolor illustration, soft washes, painterly, delicate",
-    "cartoon": "cartoon style, vibrant colors, clean shapes, playful",
-    "realistic": "semi-realistic illustration, detailed rendering, cinematic",
-}
-
-
 class PollinationsImageProvider(ImageProvider):
     name = "pollinations"
 
-    def __init__(self, model: str | None = None) -> None:
+    def __init__(
+        self,
+        model: str | None = None,
+        api_key: str | None = None,
+        image_edit_model: str | None = None,
+    ) -> None:
         settings = get_settings()
         # "flux" is the best free model; "turbo" is faster/lower quality
         self.model = model or "flux"
+        self.api_key = (
+            api_key if api_key is not None else settings.pollinations_api_key
+        ).strip()
+        self.image_edit_model = image_edit_model or settings.pollinations_image_edit_model
         self.image_size = settings.image_size or 768
-        self.max_retries = 2
+        self.max_retries = 3
 
     @property
     def supports_reference_images(self) -> bool:
-        # Pollinations URL API doesn't take reference images directly,
-        # but we restate character appearance in the prompt for consistency.
-        return False
+        return bool(self.api_key)
 
     def _build_prompt(self, request: ImageRequest) -> str:
         names = ", ".join(request.character_names) if request.character_names else "the character"
@@ -109,25 +115,120 @@ class PollinationsImageProvider(ImageProvider):
         emotion = (request.emotion or "neutral").lower()
         face = EMOTION_FACES.get(emotion, f"{emotion} expression clearly on face")
 
-        style_kw = STYLE_KEYWORDS.get(
-            (request.style or "manga").lower(),
-            f"{request.style} comic art style",
-        )
+        style = get_style_preset(request.style)
+
+        character_designs = []
+        for name in request.character_names:
+            description = request.character_descriptions.get(name, "").strip()
+            color = request.character_colors.get(name, "").strip()
+            identity = description[:320]
+            if color:
+                identity = f"{identity}; consistent palette {color}".strip("; ")
+            if identity:
+                character_designs.append(f"{name}: {identity}")
 
         parts = [
-            style_kw,
+            f"Art direction: {style.prompt_fragment}",
             f"comic panel of {names}",
+            (
+                "Maintain the exact same character identity, face, hair, age, body build, "
+                "and outfit in every panel; character design descriptions are authoritative; "
+                "do not redesign or swap characters"
+            ),
+            *character_designs,
             f"{request.action or 'in scene'}",
             f"facial expression: {face}",
             f"setting: {scene}",
             f"{request.shot} shot composition",
             f"{request.time_of_day} lighting",
             request.prompt or "",
+            (
+                "Do not use these visual traits: " + request.negative_prompt
+                if request.negative_prompt
+                else ""
+            ),
             "high quality, detailed, expressive faces, professional comic illustration",
         ]
         return ", ".join(p for p in parts if p.strip())
 
-    def _fetch_image(self, prompt: str, seed: int, timeout: float = 90.0) -> bytes:
+    @staticmethod
+    def _reference_data_uri(path: str) -> str:
+        reference_path = Path(path)
+        if not reference_path.is_file():
+            raise ProviderError(f"reference image not found: {path}")
+        try:
+            with Image.open(reference_path) as source:
+                image = source.convert("RGB")
+                image.thumbnail((REFERENCE_MAX_SIZE, REFERENCE_MAX_SIZE), Image.LANCZOS)
+                buffer = io.BytesIO()
+                image.save(buffer, format="JPEG", quality=85, optimize=True)
+        except Exception as exc:
+            raise ProviderError(f"could not prepare reference image {path}: {exc}") from exc
+        encoded = base64.b64encode(buffer.getvalue()).decode("ascii")
+        return f"data:image/jpeg;base64,{encoded}"
+
+    def _fetch_reference_image(
+        self,
+        prompt: str,
+        seed: int,
+        reference_images: list[str],
+        timeout: float = 180.0,
+    ) -> bytes:
+        readable = [path for path in reference_images if Path(path).is_file()][:4]
+        if not readable:
+            raise ProviderError("reference-conditioned generation needs a readable reference image")
+
+        edit_prompt = (
+            "Create a new comic panel based on the supplied character reference image(s). "
+            "Preserve the referenced character identity, face, hair, age, body build, skin "
+            "tone, outfit, and distinctive accessories. Do not copy the reference background. "
+            "Follow the requested action, composition, setting, lighting, and art style. "
+            "Do not add lettering, dialogue, captions, logos, or watermarks. "
+            f"Panel description: {prompt}"
+        )
+        body = {
+            "prompt": edit_prompt[:32000],
+            "image": [
+                {"image_url": self._reference_data_uri(path)}
+                for path in readable
+            ],
+            "model": self.image_edit_model,
+            "size": f"{self.image_size}x{self.image_size}",
+            "quality": "medium",
+            "output_format": "png",
+            "response_format": "b64_json",
+            "seed": seed,
+        }
+        try:
+            with httpx.Client(timeout=timeout) as client:
+                response = client.post(
+                    POLLINATIONS_EDIT_URL,
+                    headers={
+                        "Authorization": f"Bearer {self.api_key}",
+                        "Content-Type": "application/json",
+                    },
+                    json=body,
+                )
+        except httpx.HTTPError as exc:
+            raise ProviderError(f"Pollinations reference-image request failed: {exc}") from exc
+
+        if response.status_code >= 400:
+            raise ProviderError(
+                f"Pollinations reference-image edit returned {response.status_code}: "
+                f"{response.text[:300]}"
+            )
+        try:
+            entries = response.json().get("data") or []
+            encoded = entries[0].get("b64_json") if entries else None
+            if not encoded:
+                raise ProviderError("Pollinations reference-image response contained no image data")
+            return base64.b64decode(encoded, validate=True)
+        except (ValueError, KeyError, IndexError, TypeError, AttributeError, binascii.Error) as exc:
+            raise ProviderError(
+                f"Pollinations returned invalid reference-image data: {exc}"
+            ) from exc
+
+    def _fetch_text_image(self, prompt: str, seed: int, timeout: float = 90.0) -> bytes:
         # Append watermark-blocking keywords to prompt
         clean_prompt = prompt + ", no watermark, no text overlay, no logo, no signature"
         encoded = urllib.parse.quote(clean_prompt[:1800])
@@ -149,11 +250,15 @@ class PollinationsImageProvider(ImageProvider):
             raise ProviderError(f"pollinations request failed: {exc}") from exc
 
         if resp.status_code >= 400:
-            if resp.status_code == 402:
-                _defer_after_rate_limit()
+            if resp.status_code in (402, 429):
+                try:
+                    retry_after = float(resp.headers.get("retry-after", ""))
+                except (TypeError, ValueError):
+                    retry_after = None
+                _defer_after_rate_limit(retry_after)
                 raise PollinationsRateLimitError(
-                    "Pollinations returned 402 (per-IP free-tier limit). "
-                    f"Waiting {REQUEST_INTERVAL_SECONDS:.0f}s before retrying."
+                    f"Pollinations returned {resp.status_code} (rate limit). "
+                    "Waiting for its retry window before retrying."
                 )
             raise ProviderError(
                 f"pollinations returned {resp.status_code}: {resp.text[:200]}"
@@ -169,6 +274,19 @@ class PollinationsImageProvider(ImageProvider):
         if "image" not in ctype:
             raise ProviderError(f"pollinations returned non-image content-type: {ctype}")
         return data
+
+    def _fetch_image(
+        self,
+        prompt: str,
+        seed: int,
+        reference_images: list[str] | None = None,
+        timeout: float = 90.0,
+    ) -> bytes:
+        if self.api_key and reference_images:
+            return self._fetch_reference_image(
+                prompt, seed, reference_images, timeout=max(timeout, 180.0)
+            )
+        return self._fetch_text_image(prompt, seed, timeout)
 
     # ------------------------------------------------------------------ image cleanup
 
@@ -207,7 +325,11 @@ class PollinationsImageProvider(ImageProvider):
                     "pollinations panel=%s attempt=%d model=%s",
                     request.panel_id, attempt + 1, self.model,
                 )
-                image_bytes = self._fetch_image(prompt, seed + attempt * 101)
+                image_bytes = self._fetch_image(
+                    prompt,
+                    seed + attempt * 101,
+                    request.reference_images,
+                )
                 image_bytes = self._remove_watermark(image_bytes)
 
                 output = Path(request.output_path)
@@ -229,14 +351,13 @@ class PollinationsImageProvider(ImageProvider):
                     if rate_limit_retries == 0:
                         rate_limit_retries += 1
                         log.warning(
-                            "pollinations panel=%s hit the per-IP limit; "
-                            "retrying after the 45s cooldown",
+                            "pollinations panel=%s hit the rate limit; waiting for cooldown",
                             request.panel_id,
                         )
                         continue
                     break
                 if attempt < self.max_retries:
-                    delay = 1.5 * (2 ** attempt)
+                    delay = min(2 ** (attempt + 1), 16)
                     log.warning(
                         "pollinations panel=%s attempt %d failed: %s — retry in %.1fs",
                         request.panel_id, attempt + 1, str(exc)[:200], delay,

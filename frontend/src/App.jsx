@@ -15,8 +15,10 @@ function NavItem({ to, children }) {
       to={to}
       className={({ isActive }) =>
         [
-          'rounded-lg px-3 py-1.5 text-sm font-medium transition',
-          isActive ? 'bg-white/10 text-white' : 'text-slate-400 hover:text-slate-100',
+          'rounded-lg px-3 py-2 text-sm font-medium transition',
+          isActive
+            ? 'bg-accent/15 text-white shadow-[inset_0_0_0_1px_rgba(139,124,246,.25)]'
+            : 'text-slate-400 hover:bg-white/5 hover:text-slate-100',
         ].join(' ')
       }
     >
@@ -31,6 +33,29 @@ function Placeholder({ title, children }) {
       <h2 className="text-lg font-semibold text-white">{title}</h2>
       <p className="mt-2 text-sm text-slate-400">{children}</p>
     </div>
+  )
+}
+
+function BrandMark() {
+  return (
+    <svg
+      viewBox="0 0 40 40"
+      className="h-10 w-10 shrink-0"
+      fill="none"
+      aria-label="AI ComicVerse logo"
+    >
+      <defs>
+        <linearGradient id="brand-gradient" x1="6" y1="4" x2="34" y2="36" gradientUnits="userSpaceOnUse">
+          <stop stopColor="#B6ADFF" />
+          <stop offset="1" stopColor="#6857DB" />
+        </linearGradient>
+      </defs>
+      <rect x="2" y="2" width="36" height="36" rx="11" fill="url(#brand-gradient)" />
+      <path d="M9 10.5h15.5v10.5H15l-6 5v-15.5Z" fill="#10131F" />
+      <path d="M18.5 19h12.5v10.5h-7l-5.5 4V19Z" fill="#10131F" opacity=".88" />
+      <circle cx="14" cy="16" r="1.5" fill="#B6ADFF" />
+      <path d="M19.5 15.5l2.5 2.5" stroke="#B6ADFF" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
   )
 }
 
@@ -53,16 +78,12 @@ export default function App() {
 
   return (
     <div className="min-h-screen">
-      <header className="no-print sticky top-0 z-30 border-b border-white/10 bg-ink-950/85 backdrop-blur">
+      <header className="no-print sticky top-0 z-30 border-b border-white/[0.07] bg-ink-950/80 backdrop-blur-xl">
         <div className="mx-auto flex max-w-7xl flex-wrap items-center gap-3 px-4 py-3 sm:px-6">
           <NavLink to="/" className="flex items-center gap-2.5">
-            <span className="grid h-9 w-9 grid-cols-2 grid-rows-2 gap-0.5 rounded-lg bg-accent p-1.5">
-              <span className="col-span-2 bg-ink-950" />
-              <span className="bg-ink-950" />
-              <span className="bg-ink-950" />
-            </span>
-            <span className="text-lg font-bold tracking-tight text-white">
-              AI Comic<span className="text-accent">Verse</span>
+            <BrandMark />
+            <span className="text-[17px] font-bold tracking-tight text-white">
+              AI Comic<span className="bg-gradient-to-r from-accent-soft to-cyan-300 bg-clip-text text-transparent">Verse</span>
             </span>
           </NavLink>
 
